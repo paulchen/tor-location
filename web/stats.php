@@ -1,6 +1,8 @@
 <?php
 
-require_once('config.php');
+chdir(dirname(__FILE__));
+
+require_once('../config.php');
 
 $mysqli = new mysqli($db_host, $db_user, $db_pass, $db_name);
 
