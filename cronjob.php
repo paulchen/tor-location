@@ -161,13 +161,13 @@ foreach($periods as $period) {
 	$mysqli->query("DELETE FROM $table_city WHERE date = '$start_date'");
 	$query_start = "INSERT INTO $table_city (country, city, date, unique_ips, total_ips) VALUES ";
 	$values = array();
-	$result = $mysqli->query("SELECT country_name, city, COUNT(a.ip) total_ips, COUNT(DISTINCT a.ip) unique_ips
+	$result = $mysqli->query("SELECT country_name, city, SUM(a.count) total_ips, COUNT(a.ip) unique_ips
 		FROM
-		(SELECT ip, ip_long
+		(SELECT ip, ip_long, COUNT(*) count
 			FROM ip_seen
 			WHERE `timestamp` >= '$start_date'
 				AND `timestamp` <= '$end_date'
-				AND ip_long IN (SELECT ip_long FROM ip_info)) a
+			GROUP BY ip, ip_long) a
 		JOIN ip_info i USING (ip_long)
                 GROUP BY country_name, city");
 	$country_unique_ips = array();
