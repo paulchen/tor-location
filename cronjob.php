@@ -8,7 +8,7 @@ if(!defined('STDIN') && !defined($argc)) {
 	die();
 }
 
-require_once('config.php');
+require_once('common.php');
 
 $mysqli = new mysqli($db_host, $db_user, $db_pass, $db_name);
 
@@ -63,27 +63,32 @@ foreach($ips1 as $ip) {
 	}
 }
 
-$query_start = "INSERT INTO ip_seen (ip, `timestamp`, ip_long) VALUES ";
+$query_start = 'INSERT INTO ip_seen (ip, "timestamp", ip_long) VALUES ';
 $values = array();
+$parameters = array();
 foreach($ips3 as $ip) {
 	$ip_long = ip2long($ip);
-	$values[] = "('" . $mysqli->real_escape_string($ip) . "', NOW(), '" . $mysqli->real_escape_string($ip_long) . "')";
+	$values[] = $ip;
+	$values[] = $ip_long;
+	$parameters[] = "(?, NOW(), ?)";
 
-	if(count($values) == 1000) {
-		$query = $query_start . implode(', ', $values);
-		$mysqli->query($query);
+	if(count($parameters) == 1000) {
+		$query = $query_start . implode(',', $parameters);
+		db_query($query, $values);
 		$values = array();
+		$parameters = array();
 	}
 }
 if(count($values) > 0) {
-	$query = $query_start . implode(', ', $values);
-	$mysqli->query($query);
+	$query = $query_start . implode(',', $parameters);
+	db_query($query, $values);
 }
 
-$result = $mysqli->query("SELECT DISTINCT ip FROM ip_seen WHERE ip NOT IN (SELECT ip FROM ip_info)");
+$result = db_query('select count(distinct ip_seen.ip) from ip_seen left join ip_info using (ip_long) where ip_info.ip is null');
 $query_start = "INSERT INTO ip_info (ip, continent_code, country_code, country_code3, country_name, region, city, postal_code, latitude, longitude, dma_code, area_code, ip_long) VALUES ";
 $values = array();
-while($row = $result->fetch_assoc()) {
+$parameters = array();
+foreach($result as $row) {
 	$fail = false;
 	$data = @geoip_record_by_name($row['ip']) or $fail = true;
 	if($fail) {
@@ -91,32 +96,32 @@ while($row = $result->fetch_assoc()) {
 	}
 
 	$ip_long = ip2long($row['ip']);
-	$values[] = "('" . $mysqli->real_escape_string($row['ip']) .
-		"', '" . $mysqli->real_escape_string($data['continent_code']) .
-		"', '" . $mysqli->real_escape_string($data['country_code']) .
-		"', '" . $mysqli->real_escape_string($data['country_code3']) .
-		"', '" . $mysqli->real_escape_string($data['country_name']) .
-		"', '" . $mysqli->real_escape_string($data['region']) .
-		"', '" . $mysqli->real_escape_string($data['city']) .
-		"', '" . $mysqli->real_escape_string($data['postal_code']) .
-		"', '" . $mysqli->real_escape_string($data['latitude']) .
-		"', '" . $mysqli->real_escape_string($data['longitude']) .
-		"', '" . $mysqli->real_escape_string($data['dma_code']) .
-		"', '" . $mysqli->real_escape_string($data['area_code']) .
-		"', '" . $mysqli->real_escape_string($ip_long) .
-		"')";
+	$values[] = $row['ip'];
+	$values[] = $data['continent_code'];
+	$values[] = $data['country_code'];
+	$values[] = $data['country_code3'];
+	$values[] = $data['country_name'];
+	$values[] = $data['region'];
+	$values[] = $data['city'];
+	$values[] = $data['postal_code'];
+	$values[] = $data['latitude'];
+	$values[] = $data['longitude'];
+	$values[] = $data['dma_code'];
+	$values[] = $data['area_code'];
+	$values[] = $ip_long;
+	$parameters[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 
 	if(count($values) == 100) {
-		$query = $query_start . implode(', ', $values);
-		$mysqli->query($query);
+		$query = $query_start . implode(',', $parameters);
+		db_query($query, $values);
 		$values = array();
+		$parameters = array();
 	}
 }
 if(count($values) > 0) {
-	$query = $query_start . implode(', ', $values);
-	$mysqli->query($query);
+	$query = $query_start . implode(',', $parameters);
+	db_query($query, $values);
 }
-$result->close();
 
 $weekday = date('w')-1;
 if($weekday < 0) {
@@ -158,31 +163,34 @@ foreach($periods as $period) {
 	$start_date = $period['start_date'];
 	$end_date = $period['end_date'];
 
-	$mysqli->query("DELETE FROM $table_city WHERE date = '$start_date'");
+	db_query("DELETE FROM $table_city WHERE date = ?", array($start_date));
 	$query_start = "INSERT INTO $table_city (country, city, date, unique_ips, total_ips) VALUES ";
 	$values = array();
-	$result = $mysqli->query("SELECT country_name, city, SUM(a.count) total_ips, COUNT(a.ip) unique_ips
+	$parameters = array();
+	$result = db_query('SELECT country_name, city, SUM(a.count) total_ips, COUNT(a.ip) unique_ips
 		FROM
 		(SELECT ip, ip_long, COUNT(*) count
 			FROM ip_seen
-			WHERE `timestamp` >= '$start_date'
-				AND `timestamp` <= '$end_date'
+			WHERE "timestamp" >= ?
+				AND "timestamp" <= ?
 			GROUP BY ip, ip_long) a
 		JOIN ip_info i USING (ip_long)
-                GROUP BY country_name, city");
+                GROUP BY country_name, city', array($start_date, $end_date));
 	$country_unique_ips = array();
 	$country_ips = array();
-	while($row = $result->fetch_assoc()) {
-		$values[] = "('" . $mysqli->real_escape_string($row['country_name']) .
-			"', '" . $mysqli->real_escape_string($row['city']) .
-			"', '" . $mysqli->real_escape_string($start_date) .
-			"', '" . $mysqli->real_escape_string($row['unique_ips']) .
-			"', '" . $mysqli->real_escape_string($row['total_ips']) .
-			"')";
-		if(count($values) == 1000) {
-			$query = $query_start . implode(', ', $values);
-			$mysqli->query($query);
+	foreach($result as $row) {
+		$values[] = $row['country_name'];
+		$values[] = $row['city'];
+		$values[] = $start_date;
+		$values[] = $row['unique_ips'];
+		$values[] = $row['total_ips'];
+		$parameters[] = '(?, ?, ?, ?, ?)';
+
+		if(count($parameters) == 1000) {
+			$query = $query_start . implode(',', $parameters);
+			db_query($query, $values);
 			$values = array();
+			$parameters = array();
 		}
 
 		if(isset($country_unique_ips[$row['country_name']])) {
@@ -199,35 +207,36 @@ foreach($periods as $period) {
 			$country_ips[$row['country_name']] = $row['total_ips'];
 		}
 	}
-	$result->close();
 
 	if(count($values) > 0) {
-		$query = $query_start . implode(', ', $values);
-		$mysqli->query($query);
+		$query = $query_start . implode(',', $parameters);
+		db_query($query, $values);
 	}
 
-	$mysqli->query("DELETE FROM $table_country WHERE date = '$start_date'");
+	db_query("DELETE FROM $table_country WHERE date = ?", array($start_date));
 	$query_start = "INSERT INTO $table_country (country, date, unique_ips, total_ips) VALUES ";
 	$values = array();
+	$parameters = array();
 	foreach(array_keys($country_ips) as $country) {
-		$values[] = "('" . $mysqli->real_escape_string($country) .
-			"', '" . $mysqli->real_escape_string($start_date) .
-			"', '" . $mysqli->real_escape_string($country_unique_ips[$country]) . 
-			"', '" . $mysqli->real_escape_string($country_ips[$country]) .
-			"')";
-		if(count($values) == 1000) {
-			$query = $query_start . implode(', ', $values);
-			$mysqli->query($query);
+		$values[] = $country;
+		$values[] = $start_date;
+		$values[] = $country_unique_ips[$country];
+		$values[] = $country_ips[$country];
+		$parameters[] = '(?, ?, ?, ?)';
+
+		if(count($parameters) == 1000) {
+			$query = $query_start . implode(',', $parameters);
+			db_query($query, $values);
 			$values = array();
+			$parameters = array();
 		}
 	}
 
 	if(count($values) > 0) {
-		$query = $query_start . implode(', ', $values);
-		$mysqli->query($query);
+		$query = $query_start . implode(',', $parameters);
+		db_query($query, $values);
 	}
 }
-
 
 $mysqli->close();
 

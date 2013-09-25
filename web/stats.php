@@ -2,9 +2,7 @@
 
 chdir(dirname(__FILE__));
 
-require_once('../config.php');
-
-$mysqli = new mysqli($db_host, $db_user, $db_pass, $db_name);
+require_once('../common.php');
 
 $period = 'day';
 if(isset($_REQUEST['period'])) { 
@@ -16,7 +14,7 @@ if(isset($_REQUEST['what'])) {
 }
 $date = date('Y-m-d');
 if(isset($_REQUEST['date'])) {
-	$date = $mysqli->real_escape_string($_REQUEST['date']);
+	$date = $_REQUEST['date'];
 }
 
 if($what != 'country' && $what != 'city') {
@@ -38,70 +36,53 @@ if(isset($_REQUEST['sort']) && $_REQUEST['sort'] == 'total') {
 
 $country = '';
 if(isset($_REQUEST['country'])) {
-	$country = $mysqli->real_escape_string(urldecode($_REQUEST['country']));
+	$country = $_REQUEST['country'];
 }
 
 if($what == 'country') {
 	$headers = array('Country', 'Unique IPs', 'Total IPs');
-	$result = $mysqli->query("SELECT country, unique_ips, total_ips FROM $table_name WHERE date = '$date' ORDER BY $sql_sort, country ASC");
+	$rows = db_query("SELECT country, unique_ips, total_ips FROM $table_name WHERE date = ? ORDER BY $sql_sort, country ASC", array($date));
 }
 else {
 	$headers = array('Country', 'City', 'Unique IPs', 'Total IPs');
 	if($country != '') {
-		$result = $mysqli->query("SELECT country, city, unique_ips, total_ips FROM $table_name WHERE date = '$date' AND country = '$country' ORDER BY $sql_sort, city ASC");
+		$rows = db_query("SELECT country, city, unique_ips, total_ips FROM $table_name WHERE date = ? AND country = ? ORDER BY $sql_sort, city ASC", array($date, $country));
 	}
 	else {
-		$result = $mysqli->query("SELECT country, city, unique_ips, total_ips FROM $table_name WHERE date = '$date' ORDER BY $sql_sort, country ASC, city ASC");
+		$rows = db_query("SELECT country, city, unique_ips, total_ips FROM $table_name WHERE date = ? ORDER BY $sql_sort, city ASC", array($date));
 	}
 }
 
-$rows = array();
 $total = 0;
 $total_unique = 0;
-while($line = $result->fetch_assoc()) {
-	$row = array();
-	foreach($line as $key => $value) {
-		$row[] = $value;
-		if($key == 'unique_ips') {
-			$total_unique += $value;
-		}
-		else if($key == 'total_ips') {
-			$total += $value;
-		}
-	}
-	$rows[] = $row;
+foreach($rows as $line) {
+	$total_unique += $line['unique_ips'];
+	$total += $line['total_ips'];
 }
-$result->close();
 
 $previous_period = date_sub(new DateTime($date), date_interval_create_from_date_string("1 $period"))->format('Y-m-d');
 $next_period = date_add(new DateTime($date), date_interval_create_from_date_string("1 $period"))->format('Y-m-d');
 
 $countries = array();
-$result = $mysqli->query("SELECT DISTINCT country FROM $table_name ORDER BY country ASC");
-while($line = $result->fetch_assoc()) {
+$data = db_query("SELECT DISTINCT country FROM $table_name ORDER BY country ASC");
+foreach($data as $line) {
 	$countries[] = $line['country'];
 }
-$result->close();
 
 $periods = array('day', 'week', 'month', 'year');
 $period_dates = array();
 foreach($periods as $period_name) {
 	$dates = array();
 	$table_name = 'stats_' . $period_name . '_country';
-	$result = $mysqli->query("SELECT DISTINCT date FROM $table_name ORDER BY date DESC");
-	while($line = $result->fetch_assoc()) {
+	$data = db_query("SELECT DISTINCT date FROM $table_name ORDER BY date DESC");
+	foreach($data as $line) {
 		$dates[] = $line['date'];
 	}
-	$result->close();
 	$period_dates[$period_name] = $dates;
 }
 
-$result = $mysqli->query("SELECT UNIX_TIMESTAMP(MAX(`timestamp`)) last_updated FROM ip_seen");
-$line = $result->fetch_assoc();
-$last_updated = $line['last_updated'];
-$result->close();
-
-$mysqli->close();
+$data = db_query('SELECT MAX("timestamp") last_updated FROM ip_seen');
+$last_updated = strtotime($data[0]['last_updated']);
 
 echo '<?xml version="1.0" ?>';
 ?>
@@ -218,7 +199,7 @@ echo '<?xml version="1.0" ?>';
 	</tr>
 	<?php foreach($rows as $row): ?>
 		<tr>
-			<?php foreach($row as $col => $cell): ?>
+			<?php $col=0; foreach($row as $cell): ?>
 				<td>
 					<?php if($col == 0): ?>
 						<a href="<?php echo $_SERVER['PHP_SELF'] ."?what=city&amp;period=$period&amp;date=$date&amp;sort=$sort&amp;country=" . urlencode($cell); ?>">
@@ -228,7 +209,7 @@ echo '<?xml version="1.0" ?>';
 						</a>
 					<?php endif; ?>
 				</td>
-			<?php endforeach; ?>
+			<?php $col++; endforeach; ?>
 		</tr>
 	<?php endforeach; ?>
 	<tr>
