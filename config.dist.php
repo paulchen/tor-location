@@ -10,3 +10,5 @@ $tor_port = '';
 $process_name = 'tor';
 $site_name = 'tor.rueckgr.at';
 
+$status_file = '/etc/icinga/tor_locations_update';
+

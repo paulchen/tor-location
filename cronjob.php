@@ -66,6 +66,7 @@ foreach($ips1 as $ip) {
 $query_start = 'INSERT INTO ip_seen (ip, "timestamp", ip_long) VALUES ';
 $values = array();
 $parameters = array();
+
 foreach($ips3 as $ip) {
 	$ip_long = ip2long($ip);
 	$values[] = $ip;
@@ -84,14 +85,16 @@ if(count($values) > 0) {
 	db_query($query, $values);
 }
 
-$result = db_query('select count(distinct ip_seen.ip) from ip_seen left join ip_info using (ip_long) where ip_info.ip is null');
+$stmt = db_query_resultset('select distinct ip_seen.ip from ip_seen left join ip_info using (ip_long) where ip_info.ip is null');
 $query_start = "INSERT INTO ip_info (ip, continent_code, country_code, country_code3, country_name, region, city, postal_code, latitude, longitude, dma_code, area_code, ip_long) VALUES ";
 $values = array();
 $parameters = array();
-foreach($result as $row) {
+$fails = 0;
+while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 	$fail = false;
 	$data = @geoip_record_by_name($row['ip']) or $fail = true;
 	if($fail) {
+		$fails++;
 		continue;
 	}
 
@@ -100,9 +103,9 @@ foreach($result as $row) {
 	$values[] = $data['continent_code'];
 	$values[] = $data['country_code'];
 	$values[] = $data['country_code3'];
-	$values[] = $data['country_name'];
+	$values[] = iconv('ISO-8859-1', 'UTF-8', $data['country_name']);
 	$values[] = $data['region'];
-	$values[] = $data['city'];
+	$values[] = iconv('ISO-8859-1', 'UTF-8', $data['city']);
 	$values[] = $data['postal_code'];
 	$values[] = $data['latitude'];
 	$values[] = $data['longitude'];
@@ -111,7 +114,7 @@ foreach($result as $row) {
 	$values[] = $ip_long;
 	$parameters[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 
-	if(count($values) == 100) {
+	if(count($values) > 1000) {
 		$query = $query_start . implode(',', $parameters);
 		db_query($query, $values);
 		$values = array();
@@ -122,6 +125,7 @@ if(count($values) > 0) {
 	$query = $query_start . implode(',', $parameters);
 	db_query($query, $values);
 }
+db_stmt_close($stmt);
 
 $weekday = date('w')-1;
 if($weekday < 0) {
@@ -239,4 +243,6 @@ foreach($periods as $period) {
 }
 
 $mysqli->close();
+
+touch($status_file);
 
